@@ -96,10 +96,19 @@ Qt 测试不需要启动 OBS：
 | `codesign --verify --strict --verbose=2` | staging 和 CPack 内部产物均通过 ad-hoc 签名验证 |
 | `otool -L` / `otool -l` | 依赖为宿主 `@rpath` 和系统库；RPATH 为 `@executable_path/../Frameworks`，无 SDK 绝对路径 |
 | `nm -gU` | 导出 `obs_module_load`、`obs_module_unload` 等 OBS 模块入口 |
-| Windows/macOS Intel 构建、GitHub Actions | 尚未执行 |
+| Windows x64 构建 / EXE 和 ZIP、Linux Qt 测试 | [首次 GitHub Actions](https://github.com/Xinrea/obs-quick-paste/actions/runs/40195980872) 中已通过 |
+| macOS Intel 构建 | 尚未执行 |
 | 真实 OBS 粘贴、来源树选择、Undo/Redo、重启恢复、Studio Mode | 尚未实机验收 |
 | 1080p 200ms 性能目标、签名公证 | 尚未测量 / 尚未完成 |
 
 Qt 测试的实际依赖配置详见 [构建说明](building.md)：OBS 官方 Qt 6.8.3 + 同版本独立 QtTest。完整 Qt SDK 单独链接在 Xcode 27 因 AGL.framework 缺失失败，没有把该失败当作测试通过。测试输出有 offscreen `propagateSizeHints` 和字体提示；布局测试使用的 QtTest 宏产生一条 C++17 可变参数宏警告，均未跳过测试。
 
 代码审查修复了“场景集合清理后仍保留原生复制抑制状态”的问题，并加入 Qt 回归用例。安装验证修复了安装阶段改写 RPATH 导致 bundle 签名失效的问题。
+
+### 1.0.0 发布验证
+
+- 本地重新生成 `1.0.0` macOS PKG 和 ZIP；`installer -dominfo` 确认只有 `CurrentUserHomeDirectory`，展开包验证非重定位 bundle 和 ad-hoc 签名。未实际运行安装程序。
+- NSIS 自定义模板用 fixture 编译通过；真实 Windows x64 插件、EXE 和 ZIP 已在 GitHub Actions 构建成功，但未执行 Windows 安装/卸载。
+- 发布版本/资产守卫的三个 Python 测试通过；workflow 经 actionlint 检查通过。
+- 首次 macOS CI 在 OBS SDK 配置阶段失败：`macos-14` 默认 Xcode 15.4 / SDK 14.5 不满足 OBS 32 的 SDK 15 要求。已将 runner 改为 `macos-15`，不绕过上游 SDK 检查。
+- 最终 tag 构建/发布结果以 [Actions](https://github.com/Xinrea/obs-quick-paste/actions/workflows/build.yml) 和 [v1.0.0 Release](https://github.com/Xinrea/obs-quick-paste/releases/tag/v1.0.0) 为准；发布任务必须等待所有平台构建和测试成功才公开资产。

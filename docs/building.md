@@ -3,7 +3,7 @@
 ## 工具链
 
 - CMake 3.28+、C++17。
-- macOS：Xcode，首期 arm64；Intel 需单独构建 SDK 和插件。
+- macOS：Xcode 16+ / macOS SDK 15+，首期 arm64；Intel 需单独构建 SDK 和插件。CI 使用 `macos-15`，避免旧 runner 默认 Xcode 15 的 SDK 不满足 OBS 32 要求。
 - Windows：Visual Studio 2022，Desktop development with C++，x64。
 - 插件：OBS 32.0.4 的公开 libobs/frontend SDK，以及 OBS 官方对应 Qt 6.8.3 依赖。
 - 测试：Qt 6 Core/Gui/Widgets/Test 和 Ninja，不需要 OBS。

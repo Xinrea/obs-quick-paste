@@ -55,7 +55,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             preset: macos-arm64
             installer: productbuild
           - os: windows-2022
@@ -68,7 +68,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .deps
-          key: obs-sdk-${{ matrix.preset }}-${{ hashFiles('cmake/BootstrapObs.cmake', 'cmake/EnableObsSwift.cmake') }}
+          key: obs-sdk-${{ matrix.os }}-${{ matrix.preset }}-${{ hashFiles('cmake/BootstrapObs.cmake', 'cmake/EnableObsSwift.cmake') }}
       - name: Build pinned OBS public SDK
         run: cmake -P cmake/BootstrapObs.cmake
       - name: Install Windows installer compiler
