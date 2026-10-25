@@ -1,0 +1,124 @@
+; CPack supplies the staged file tree and exact installed-file manifest.
+; Deliberately no shared-directory removal, PATH changes, or OBS registry writes.
+Unicode true
+!include "MUI2.nsh"
+!include "LogicLib.nsh"
+!include "x64.nsh"
+
+Name "@CPACK_NSIS_PACKAGE_NAME@"
+OutFile "@CPACK_TOPLEVEL_DIRECTORY@/@CPACK_OUTPUT_FILE_NAME@"
+InstallDir "$PROGRAMFILES64\obs-studio"
+RequestExecutionLevel admin
+SetCompressor /SOLID lzma
+ShowInstDetails show
+ShowUninstDetails show
+
+!define INST_DIR "@CPACK_TEMPORARY_DIRECTORY@"
+!define PluginKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\@CPACK_PACKAGE_INSTALL_REGISTRY_KEY@"
+!define MUI_ABORTWARNING
+!define MUI_WELCOMEPAGE_TEXT "This unsigned installer adds OBS Quick Paste to an existing 64-bit OBS Studio installation.$\r$\n$\r$\nClose OBS before continuing. Select the OBS root folder, not bin or obs-plugins. Your images, scenes and settings are not installed or removed by this installer."
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "@CPACK_RESOURCE_FILE_LICENSE@"
+!define MUI_DIRECTORYPAGE_TEXT_TOP "Select the existing OBS Studio folder containing bin\64bit\obs64.exe."
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE VerifyDirectory
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+!insertmacro MUI_LANGUAGE "English"
+
+; $0 is a candidate OBS root; $1 is the validation result. Every source of a
+; path (registry, default, directory picker, /D) uses the same validation.
+Function CheckOBSRoot
+  StrCpy $1 0
+  ${If} ${FileExists} "$0\bin\64bit\obs64.exe"
+  ${AndIf} ${FileExists} "$0\bin\64bit\obs.dll"
+    StrCpy $1 1
+  ${EndIf}
+FunctionEnd
+
+Function .onInit
+  ${IfNot} ${RunningX64}
+    MessageBox MB_OK|MB_ICONSTOP "64-bit Windows and OBS Studio are required." /SD IDOK
+    Abort
+  ${EndIf}
+  SetRegView 64
+  SetShellVarContext all
+  ; Respect an explicit non-default /D= path (including paths with spaces).
+  ${If} $INSTDIR != "$PROGRAMFILES64\obs-studio"
+    Return
+  ${EndIf}
+  ReadRegStr $0 HKLM "${PluginKey}" "InstallLocation"
+  Call CheckOBSRoot
+  ${If} $1 == 1
+    StrCpy $INSTDIR $0
+    Return
+  ${EndIf}
+  ; Official OBS installers have used both registry views. Only accept an
+  ; existing root, so stale registry entries never replace the fallback.
+  ReadRegStr $0 HKLM "Software\OBS Studio" ""
+  Call CheckOBSRoot
+  ${If} $1 == 1
+    StrCpy $INSTDIR $0
+    Return
+  ${EndIf}
+  SetRegView 32
+  ReadRegStr $0 HKLM "Software\OBS Studio" ""
+  SetRegView 64
+  Call CheckOBSRoot
+  ${If} $1 == 1
+    StrCpy $INSTDIR $0
+  ${EndIf}
+FunctionEnd
+
+Function VerifyDirectory
+  StrCpy $0 $INSTDIR
+  Call CheckOBSRoot
+  ${If} $1 != 1
+    MessageBox MB_OK|MB_ICONSTOP "Select an existing 64-bit OBS Studio root containing bin\64bit\obs64.exe and obs.dll." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
+Section "OBS Quick Paste"
+  ; Validate here too: silent installs skip all wizard-page callbacks.
+  Call VerifyDirectory
+  SetOutPath "$INSTDIR"
+  @CPACK_NSIS_FULL_INSTALL@
+  WriteUninstaller "$INSTDIR\@CPACK_NSIS_UNINSTALL_NAME@.exe"
+  WriteRegStr HKLM "${PluginKey}" "DisplayName" "@CPACK_NSIS_DISPLAY_NAME@"
+  WriteRegStr HKLM "${PluginKey}" "DisplayVersion" "@CPACK_PACKAGE_VERSION@"
+  WriteRegStr HKLM "${PluginKey}" "Publisher" "@CPACK_PACKAGE_VENDOR@"
+  WriteRegStr HKLM "${PluginKey}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "${PluginKey}" "UninstallString" '$\"$INSTDIR\@CPACK_NSIS_UNINSTALL_NAME@.exe$\"'
+  WriteRegDWORD HKLM "${PluginKey}" "NoModify" 1
+  WriteRegDWORD HKLM "${PluginKey}" "NoRepair" 1
+SectionEnd
+
+Function un.onInit
+  SetRegView 64
+  SetShellVarContext all
+FunctionEnd
+
+Section "Uninstall"
+  ; Do not unregister a still-loaded plugin and leave its DLL behind.
+  ClearErrors
+  Delete "$INSTDIR\obs-plugins\64bit\obs-quick-paste.dll"
+  ${If} ${Errors}
+    MessageBox MB_OK|MB_ICONSTOP "Could not remove the plugin DLL. Close OBS Studio and retry uninstalling." /SD IDOK
+    SetErrorLevel 2
+    Abort
+  ${EndIf}
+  ; Exact files only, never RMDir /r. Unknown files (including any user data)
+  ; survive; even empty OBS-owned parent directories are left in place.
+  @CPACK_NSIS_DELETE_FILES@
+  RMDir "$INSTDIR\data\obs-plugins\obs-quick-paste\locale"
+  RMDir "$INSTDIR\data\obs-plugins\obs-quick-paste"
+  Delete "$INSTDIR\@CPACK_NSIS_UNINSTALL_NAME@.exe"
+  ; An old installation must not unregister a newer copy in another OBS root.
+  ReadRegStr $0 HKLM "${PluginKey}" "InstallLocation"
+  ${If} $0 == $INSTDIR
+    DeleteRegKey HKLM "${PluginKey}"
+  ${EndIf}
+SectionEnd

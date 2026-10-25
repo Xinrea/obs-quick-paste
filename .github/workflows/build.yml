@@ -1,0 +1,143 @@
+name: Build and test
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  version:
+    name: Validate release version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check project version against tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: python3 .github/scripts/release.py version
+      - name: Test release guards
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
+  qt-tests:
+    needs: version
+    name: Qt-only tests (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt test SDK
+        run: sudo apt-get update && sudo apt-get install -y ninja-build qt6-base-dev
+      - name: Configure without OBS
+        run: cmake --preset tests
+      - name: Build tests
+        run: cmake --build --preset tests --parallel
+      - name: Run tests
+        run: ctest --preset tests
+
+  plugin:
+    needs: version
+    name: Plugin (${{ matrix.preset }})
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            preset: macos-arm64
+            installer: productbuild
+          - os: windows-2022
+            preset: windows-x64
+            installer: NSIS
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache official OBS SDK
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: obs-sdk-${{ matrix.preset }}-${{ hashFiles('cmake/BootstrapObs.cmake', 'cmake/EnableObsSwift.cmake') }}
+      - name: Build pinned OBS public SDK
+        run: cmake -P cmake/BootstrapObs.cmake
+      - name: Install Windows installer compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\NSIS\makensis.exe')) {
+            choco install nsis --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          'C:\Program Files (x86)\NSIS' >> $env:GITHUB_PATH
+      - name: Configure plugin
+        run: cmake --preset ${{ matrix.preset }} -C .deps/sdk-prefix.cmake
+      - name: Build plugin
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+      - name: Stage plugin
+        run: cmake --install build/${{ matrix.preset }} --config Release
+      - name: Verify installed macOS signature
+        if: runner.os == 'macOS'
+        run: codesign --verify --strict --verbose=2 build/${{ matrix.preset }}/install/obs-quick-paste.plugin
+      - name: Package plugin
+        working-directory: build/${{ matrix.preset }}
+        run: cpack -C Release -G ZIP -B packages
+      - name: Build native installer
+        working-directory: build/${{ matrix.preset }}
+        run: cpack -C Release -G ${{ matrix.installer }} -B packages
+      - name: Upload release candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-quick-paste-${{ matrix.preset }}
+          path: |
+            build/${{ matrix.preset }}/packages/*.zip
+            build/${{ matrix.preset }}/packages/*.pkg
+            build/${{ matrix.preset }}/packages/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish tagged release
+    timeout-minutes: 10
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [version, qt-tests, plugin]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: obs-quick-paste-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify asset set and write checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 .github/scripts/release.py assets release-assets
+      - name: Publish only after all builds and tests pass
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft > existing-release.json 2>/dev/null; then
+            python3 -c 'import json; assert json.load(open("existing-release.json"))["isDraft"], "Refusing to overwrite a published release"'
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft \
+              --title "OBS Quick Paste $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false --latest

@@ -1,0 +1,14 @@
+OBS Quick Paste for OBS Studio 32 (Apple Silicon)
+
+Quit OBS Studio before installing. This package installs for the current user:
+~/Library/Application Support/obs-studio/plugins/obs-quick-paste.plugin
+
+The installer is unsigned and not notarized. The plugin bundle is ad-hoc signed,
+not Developer ID signed. macOS may require approval in Privacy & Security.
+Only proceed if you trust the source of this download.
+
+Only the plugin bundle is installed or upgraded. Your OBS settings, scenes,
+plugin configuration, and saved images are not part of this package.
+
+To uninstall, quit OBS and remove only obs-quick-paste.plugin from the directory
+above. This does not remove your saved images or configuration.

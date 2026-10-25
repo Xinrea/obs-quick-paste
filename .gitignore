@@ -1,0 +1,14 @@
+/.deps/
+/build/
+/build-*/
+/CMakeUserPresets.json
+/CMakeFiles/
+/CMakeCache.txt
+/Testing/
+/_CPack_Packages/
+/*.zip
+/aqtinstall.log
+.DS_Store
+*.user
+__pycache__/
+*.pyc
